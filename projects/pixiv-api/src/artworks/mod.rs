@@ -1,10 +1,12 @@
+#![allow(unused)]
+
 use std::collections::BTreeMap;
 use std::fmt::Formatter;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde::de::{MapAccess, Visitor};
 use serde_json::Value;
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct ArtworkRequest {
     pub word: String,
     pub order: String,
@@ -17,6 +19,7 @@ pub struct ArtworkRequest {
     pub ai_type: u32,
 }
 
+#[derive(Debug, Serialize)]
 pub struct ArtworkTag {
     pub word: String,
     pub order: String,
@@ -106,7 +109,12 @@ pub struct TitleCaptionTranslation {
 
 #[derive(Debug, Serialize, Default)]
 pub struct IllustData {
-    pub id: Option<String>,
+    pub id: u32,
+    pub tags: Vec<String>,
+    pub title: String,
+    pub description: String,
+    pub width: u32,
+    pub height: u32,
     #[serde(flatten)]
     pub unknown_fields: BTreeMap<String, Value>,
 }
@@ -120,7 +128,8 @@ impl<'de> Deserialize<'de> for IllustData {
     }
 }
 
-pub struct IllustDataVisitor<'i> {
+
+struct IllustDataVisitor<'i> {
     data: &'i mut IllustData,
 }
 
@@ -133,6 +142,32 @@ impl<'i, 'de> Visitor<'de> for IllustDataVisitor<'i> {
     fn visit_map<A>(mut self, mut map: A) -> Result<Self::Value, A::Error> where A: MapAccess<'de> {
         while let Some(key) = map.next_key::<String>()? {
             match key.as_str() {
+                "id" => {
+                    let id = map.next_value::<String>()?;
+                    match id.parse::<u32>() {
+                        Ok(id) => {
+                            self.data.id = id;
+                        }
+                        Err(..) => {}
+                    }
+                }
+                "tags" => {
+                    self.data.tags = map.next_value()?
+                }
+                "title" => {
+                    self.data.title = map.next_value()?
+                }
+
+                "description" => {
+                    self.data.description = map.next_value()?
+                }
+                "width" => {
+                    self.data.width = map.next_value()?;
+                }
+                "height" => {
+                    self.data.height = map.next_value()?;
+                }
+
                 unknown => {
                     let value = map.next_value::<Value>()?;
 
@@ -155,7 +190,7 @@ pub struct Illust {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Body {
+pub struct ArtworksBody {
     pub illust: Illust,
     pub popular: Popular,
     #[serde(rename = "relatedTags")]
@@ -168,8 +203,11 @@ pub struct Body {
     pub extra_data: ExtraData,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ArtworksRoot {
+#[derive(Debug, Deserialize)]
+pub struct PixivResponse<T> {
     pub error: bool,
-    pub body: Body,
+    #[serde(default)]
+    pub message: String,
+    pub body: T,
 }
+
