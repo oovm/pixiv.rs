@@ -1,3 +1,4 @@
+use tokio::task::JoinError;
 use super::*;
 
 impl From<ExampleErrorKind> for PixivError {
@@ -21,6 +22,17 @@ impl From<reqwest::Error> for PixivError {
 
 impl From<std::io::Error> for PixivError {
     fn from(value: std::io::Error) -> Self {
+        Self {
+            kind: Box::new(ExampleErrorKind::IoError {
+                message: value.to_string(),
+                file: PathBuf::new(),
+            }),
+        }
+    }
+}
+
+impl From<JoinError> for PixivError {
+    fn from(value: JoinError) -> Self {
         Self {
             kind: Box::new(ExampleErrorKind::IoError {
                 message: value.to_string(),

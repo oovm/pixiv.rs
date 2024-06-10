@@ -1,22 +1,29 @@
 #![allow(unused)]
 
-use std::cell::RefCell;
-use std::collections::BTreeMap;
-use std::fmt::Formatter;
-use std::ops::{DerefMut, Range};
-use std::path::{Path, PathBuf};
-use std::time::Duration;
-use rand::prelude::{IndexedRandom, ThreadRng};
-use rand::Rng;
-use reqwest::Client;
-use reqwest::header::{COOKIE, REFERER, USER_AGENT};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use serde::de::{MapAccess, Visitor};
-use serde::ser::SerializeStruct;
-use serde_json::Value;
-use tokio::fs::File;
-use tokio::time::Sleep;
 use crate::{PixivError, PixivImage};
+use rand::{
+    prelude::{IndexedRandom, ThreadRng},
+    Rng,
+};
+use reqwest::{
+    header::{COOKIE, REFERER, USER_AGENT},
+    Client,
+};
+use serde::{
+    de::{MapAccess, Visitor},
+    ser::SerializeStruct,
+    Deserialize, Deserializer, Serialize, Serializer,
+};
+use serde_json::Value;
+use std::{
+    cell::RefCell,
+    collections::BTreeMap,
+    fmt::Formatter,
+    ops::{DerefMut, Range},
+    path::{Path, PathBuf},
+    time::Duration,
+};
+use tokio::{fs::File, io::AsyncWriteExt, time::Sleep};
 
 pub mod images;
 
@@ -28,24 +35,26 @@ pub struct PixivResponse<T> {
     pub body: T,
 }
 
-#[derive(Debug)]
-pub struct ArtworkRequest {
-    pub word: String,
-    pub order: String,
-    pub mode: String,
-    pub p: u64,
-    pub csw: u32,
-    pub s_mode: String,
-    pub r#type: String,
+impl<T> PixivResponse<T> {
+    pub fn throw(self, context: impl Into<String>) -> Result<T, PixivError> {
+        match self.error {
+            true => Err(PixivError::request_error(self.message, context)),
+            false => Ok(self.body),
+        }
+    }
 }
 
 impl Serialize for ArtworkTag {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
         let mut ser = serializer.serialize_struct("ArtworkTag", 8)?;
         ser.serialize_field("word", &self.word)?;
 
-
-        match self.ratio { _ => { ser.serialize_field("ratio", &-0.5)? } }
+        match self.ratio {
+            _ => ser.serialize_field("ratio", &-0.5)?,
+        }
 
         if let Some(s) = self.min_width {
             ser.serialize_field("wlt", &s)?
@@ -60,27 +69,24 @@ impl Serialize for ArtworkTag {
             ser.serialize_field("hgt", &s)?
         }
 
-
         if !self.allow_ai {
             ser.serialize_field("ai_type", &1)?
         }
         ser.serialize_field("csw", &1);
 
-
         ser.end()
     }
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum PixivImageRatio {
     Landscape,
-    Port,
+    Portrait,
     Square,
     All,
 }
 
-
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ArtworkTag {
     pub word: String,
     pub order: String,
@@ -95,11 +101,10 @@ pub struct ArtworkTag {
     pub max_width: Option<u32>,
     pub min_height: Option<u32>,
     pub max_height: Option<u32>,
-
 }
 
 impl ArtworkTag {
-    pub fn new(word: &str, page: u32) -> Self {
+    pub fn new(word: &str) -> Self {
         Self {
             word: word.to_string(),
             order: "data".to_string(),
@@ -107,7 +112,7 @@ impl ArtworkTag {
             csw: 1,
             s_mode: "s_tag".to_string(),
             r#type: "illust".to_string(),
-            page,
+            page: 1,
             ratio: PixivImageRatio::All,
             allow_ai: false,
             min_width: None,
@@ -116,37 +121,40 @@ impl ArtworkTag {
             max_height: Some(9999),
         }
     }
-    pub fn landscape(word: &str, page: u32) -> Self {
-        Self {
-            ratio: PixivImageRatio::Landscape,
-            min_width: Some(768),
-            min_height: Some(512),
-            ..Self::new(word, page)
-        }
+    pub fn landscape(word: &str) -> Self {
+        Self { ratio: PixivImageRatio::Landscape, min_width: Some(768), min_height: Some(512), ..Self::new(word) }
     }
 
-    pub fn potial(word: &str, page: u32) -> Self {
-        Self {
-            ratio: PixivImageRatio::Port,
-            min_width: Some(512),
-            min_height: Some(768),
-            ..Self::new(word, page)
-        }
+    pub fn portrait(word: &str) -> Self {
+        Self { ratio: PixivImageRatio::Portrait, min_width: Some(512), min_height: Some(768), ..Self::new(word) }
     }
 
-    pub fn square(word: &str, page: u32) -> Self {
-        Self {
-            min_width: Some(512),
-            min_height: Some(512),
-            ..Self::new(word, page)
-        }
+    pub fn square(word: &str) -> Self {
+        Self { min_width: Some(512), min_height: Some(512), ..Self::new(word) }
+    }
+
+    pub fn with_page(&self, page: u32) -> Self {
+        Self { page, ..self.clone() }
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct AlternateLanguages {
-    pub ja: String,
-    pub en: String,
+impl ArtworkTag {
+    pub async fn request(&self, config: &PixivClient) -> Result<SearchPage, PixivError> {
+        let client = reqwest::Client::new();
+        let response = client
+            .get(format!("https://www.pixiv.net/ajax/search/illustrations/{0}", self.word))
+            .query(&self)
+            .header(COOKIE, &config.cookie)
+            .header(USER_AGENT, config.user_agent())
+            .send()
+            .await?;
+        let json_data: PixivResponse<SearchPage> = response.json().await?;
+        json_data.throw("")
+    }
+
+    pub async fn count_pages(&self) -> Result<u32, PixivError> {
+        Ok(1)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -154,8 +162,6 @@ pub struct Meta {
     pub title: String,
     pub description: String,
     pub canonical: String,
-    #[serde(rename = "alternateLanguages")]
-    pub alternate_languages: AlternateLanguages,
     #[serde(rename = "descriptionHeader")]
     pub description_header: String,
 }
@@ -176,11 +182,6 @@ pub struct ZoneConfig {
     pub header: Struct3,
     pub footer: Struct3,
     pub infeed: Struct3,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Struct2 {
-    pub zh: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -216,14 +217,16 @@ pub struct IllustData {
 }
 
 impl<'de> Deserialize<'de> for IllustData {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'de> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
         let mut data = IllustData::default();
         let visitor = IllustDataVisitor { data: &mut data };
         deserializer.deserialize_map(visitor)?;
         Ok(data)
     }
 }
-
 
 struct IllustDataVisitor<'i> {
     data: &'i mut IllustData,
@@ -235,38 +238,26 @@ impl<'i, 'de> Visitor<'de> for IllustDataVisitor<'i> {
     fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
         todo!()
     }
-    fn visit_map<A>(mut self, mut map: A) -> Result<Self::Value, A::Error> where A: MapAccess<'de> {
+    fn visit_map<A>(mut self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
         while let Some(key) = map.next_key::<String>()? {
             match key.as_str() {
                 "id" => {
                     let id = map.next_value::<String>()?;
                     match id.parse() {
-                        Ok(id) => {
-                            self.data.id = id;
-                        }
+                        Ok(id) => self.data.id = id,
                         Err(..) => {}
                     }
                 }
-                "tags" => {
-                    self.data.tags = map.next_value()?
-                }
-                "title" => {
-                    self.data.title = map.next_value()?
-                }
-
-                "description" => {
-                    self.data.description = map.next_value()?
-                }
-                "width" => {
-                    self.data.width = map.next_value()?;
-                }
-                "height" => {
-                    self.data.height = map.next_value()?;
-                }
-
+                "tags" => self.data.tags = map.next_value()?,
+                "title" => self.data.title = map.next_value()?,
+                "description" => self.data.description = map.next_value()?,
+                "width" => self.data.width = map.next_value()?,
+                "height" => self.data.height = map.next_value()?,
                 unknown => {
                     let value = map.next_value::<Value>()?;
-
                     self.data.unknown_fields.insert(key, value);
                 }
             }
@@ -280,7 +271,7 @@ pub struct Illust {
     pub data: Vec<IllustData>,
     pub total: u64,
     #[serde(rename = "lastPage")]
-    pub last_page: u64,
+    pub last_page: u32,
     #[serde(rename = "bookmarkRanges")]
     pub bookmark_ranges: Vec<Struct1>,
 }
@@ -300,6 +291,11 @@ pub struct SearchPage {
     pub extra_data: ExtraData,
 }
 
+impl SearchPage {
+    pub async fn count_pages(&self) -> Result<u32, PixivError> {
+        Ok(self.illust.last_page)
+    }
+}
 
 pub struct PixivClient {
     pub rng: RefCell<ThreadRng>,
@@ -330,32 +326,16 @@ impl PixivArtwork {
             return Ok(0);
         }
         let data = self.get_image_urls(&client.cookie, client.user_agent()).await?;
-        // WAIT!!! error 429 here!
+        // WAIT!!! error-429 here!
         client.cooldown().await;
-        // for image in data.iter() {
-        //     image.download_original(&client.root).await?;
-        // }
+        // TODO: no limit but need retry
         let download_tasks = data.iter().cloned().map(|image| {
             let path = client.root.clone();
-            tokio::task::spawn(async move {
-                image.download_original(&path).await
-            })
-        }).collect::<Vec<_>>();
+            tokio::task::spawn(async move { image.download_original(&path).await })
+        });
         let tasks = futures::future::join_all(download_tasks).await;
         for task in tasks {
-            match task {
-                Ok(o) => {
-                    match o {
-                        Ok(_) => {}
-                        Err(e) => {
-                            println!("DownloadError: {}", e);
-                        }
-                    }
-                }
-                Err(e) => {
-                    println!("JoinError: {}", e);
-                }
-            }
+            task??;
         }
         self.set_skip_mark(&client.root).await?;
         println!("Downloaded artwork {}", self.id);
@@ -367,15 +347,9 @@ impl PixivArtwork {
         let client = Client::new();
         let response = client.get(url).header(USER_AGENT, agent).header(COOKIE, cookie).send().await?;
         let json_data: PixivResponse<Vec<PixivImage>> = response.json().await?;
-        match json_data.error {
-            true => {
-                Err(PixivError::request_error(json_data.message, format!("PixivArtwork::get_image_urls({})", self.id)))
-            }
-            false => {
-                Ok(json_data.body)
-            }
-        }
+        json_data.throw(format!("PixivArtwork::get_image_urls({})", self.id))
     }
+
     pub fn get_skip_mark(&self, folder: &Path) -> bool {
         let path = folder.join("skip").join(self.id.to_string());
         path.exists()
