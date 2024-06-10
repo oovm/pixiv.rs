@@ -21,7 +21,12 @@ impl From<reqwest::Error> for PixivError {
 
 impl From<std::io::Error> for PixivError {
     fn from(value: std::io::Error) -> Self {
-        todo!()
+        Self {
+            kind: Box::new(ExampleErrorKind::IoError {
+                message: value.to_string(),
+                file: PathBuf::new(),
+            }),
+        }
     }
 }
 

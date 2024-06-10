@@ -104,25 +104,23 @@ impl ArtworkTag {
             word: word.to_string(),
             order: "data".to_string(),
             mode: "all".to_string(),
-            csw: 0,
-            s_mode: "".to_string(),
-            r#type: "".to_string(),
+            csw: 1,
+            s_mode: "s_tag".to_string(),
+            r#type: "illust".to_string(),
             page,
             ratio: PixivImageRatio::All,
             allow_ai: false,
             min_width: None,
             max_width: None,
-            min_height: Some(512),
-            max_height: None,
+            min_height: None,
+            max_height: Some(9999),
         }
     }
     pub fn landscape(word: &str, page: u32) -> Self {
         Self {
             ratio: PixivImageRatio::Landscape,
             min_width: Some(768),
-            max_width: None,
             min_height: Some(512),
-            max_height: Some(9999),
             ..Self::new(word, page)
         }
     }
@@ -131,9 +129,7 @@ impl ArtworkTag {
         Self {
             ratio: PixivImageRatio::Port,
             min_width: Some(512),
-            max_width: None,
             min_height: Some(768),
-            max_height: Some(9999),
             ..Self::new(word, page)
         }
     }
@@ -141,9 +137,7 @@ impl ArtworkTag {
     pub fn square(word: &str, page: u32) -> Self {
         Self {
             min_width: Some(512),
-            max_width: None,
             min_height: Some(512),
-            max_height: Some(9999),
             ..Self::new(word, page)
         }
     }

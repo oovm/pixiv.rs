@@ -23,6 +23,9 @@ impl Display for ExampleErrorKind {
             Self::RequestError { message, context } => {
                 write!(f, "RequestError: {}\n    at: {}", message, context)
             }
+            Self::IoError { message, file } => {
+                write!(f, "IoError: {}\n    at: {}", message, file.display())
+            }
         }
     }
 }

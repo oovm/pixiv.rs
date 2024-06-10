@@ -1,6 +1,7 @@
 use std::fmt::{Debug, Formatter};
 use std::error::Error;
 use std::fmt::Display;
+use std::path::PathBuf;
 
 mod display;
 mod convert;
@@ -17,13 +18,17 @@ pub struct PixivError {
 /// The kind of [PixivError].
 #[derive(Debug, Clone)]
 pub enum ExampleErrorKind {
-    /// An unknown error.
-    UnknownError,
+    IoError {
+        message: String,
+        file: PathBuf,
+    },
     RequestError {
         /// The message of the error.
         message: String,
         context: String,
     },
+    /// An unknown error.
+    UnknownError,
 }
 
 
