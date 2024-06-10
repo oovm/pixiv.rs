@@ -19,6 +19,7 @@ async fn main() -> Result<(), PixivError> {
 
     let url = "https://www.pixiv.net/ajax/search/illustrations/%E7%A3%94";
 
+    let params = ArtworkTag::potial("%E7%A3%94", 1);
 
     let params = ArtworkTag {
         word: "%E7%A3%94".to_string(),

@@ -72,7 +72,12 @@ impl Serialize for ArtworkTag {
 }
 
 #[derive(Debug)]
-pub enum PixivImageRatio {}
+pub enum PixivImageRatio {
+    Landscape,
+    Port,
+    Square,
+    All,
+}
 
 
 #[derive(Debug)]
@@ -94,20 +99,52 @@ pub struct ArtworkTag {
 }
 
 impl ArtworkTag {
-    pub fn build(&self, page: u64) -> ArtworkRequest {
-        ArtworkRequest {
-            word: self.word.clone(),
-            order: self.order.clone(),
-            mode: self.mode.clone(),
-            p: page,
-            csw: self.csw.clone(),
-            s_mode: self.s_mode.clone(),
-            r#type: self.r#type.clone(),
-            ratio: self.ratio.clone(),
-            ai_type: if self.allow_ai { 0 } else { 1 },
-            wlt: 512,
-            hlt: 768,
-            hgt: 9999,
+    pub fn new(word: &str, page: u32) -> Self {
+        Self {
+            word: word.to_string(),
+            order: "data".to_string(),
+            mode: "all".to_string(),
+            csw: 0,
+            s_mode: "".to_string(),
+            r#type: "".to_string(),
+            page,
+            ratio: PixivImageRatio::All,
+            allow_ai: false,
+            min_width: None,
+            max_width: None,
+            min_height: Some(512),
+            max_height: None,
+        }
+    }
+    pub fn landscape(word: &str, page: u32) -> Self {
+        Self {
+            ratio: PixivImageRatio::Landscape,
+            min_width: Some(768),
+            max_width: None,
+            min_height: Some(512),
+            max_height: Some(9999),
+            ..Self::new(word, page)
+        }
+    }
+
+    pub fn potial(word: &str, page: u32) -> Self {
+        Self {
+            ratio: PixivImageRatio::Port,
+            min_width: Some(512),
+            max_width: None,
+            min_height: Some(768),
+            max_height: Some(9999),
+            ..Self::new(word, page)
+        }
+    }
+
+    pub fn square(word: &str, page: u32) -> Self {
+        Self {
+            min_width: Some(512),
+            max_width: None,
+            min_height: Some(512),
+            max_height: Some(9999),
+            ..Self::new(word, page)
         }
     }
 }
