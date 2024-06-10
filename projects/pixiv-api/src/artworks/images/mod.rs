@@ -1,14 +1,14 @@
-
+use tokio::io::AsyncWriteExt;
 use super::*;
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct PixivImage {
     pub urls: PixivImageUrls,
     pub width: u32,
     pub height: u32,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct PixivImageUrls {
     #[serde(rename = "thumb_mini")]
     pub mini: String,
@@ -49,9 +49,9 @@ impl PixivImageUrls {
         };
 
 
-        let mut file = File::create(&file_name)?;
+        let mut file = File::create(&file_name).await?;
         let bytes = response.bytes().await?;
-        file.write_all(&bytes)?;
+        file.write_all(&bytes).await?;
         Ok(file_name)
     }
 }
