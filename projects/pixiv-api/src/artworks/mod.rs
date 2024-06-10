@@ -1,10 +1,32 @@
 #![allow(unused)]
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fmt::Formatter;
+use std::fs::File;
+use std::io::Write;
+use std::ops::{DerefMut, Range};
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+use rand::prelude::{IndexedRandom, ThreadRng};
+use rand::Rng;
+use reqwest::Client;
+use reqwest::header::{COOKIE, REFERER, USER_AGENT};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde::de::{MapAccess, Visitor};
 use serde_json::Value;
+use tokio::time::Sleep;
+use crate::{PixivError, PixivImage};
+
+pub mod images;
+
+#[derive(Debug, Deserialize)]
+pub struct PixivResponse<T> {
+    pub error: bool,
+    #[serde(default)]
+    pub message: String,
+    pub body: T,
+}
 
 #[derive(Debug, Serialize)]
 pub struct ArtworkRequest {
@@ -109,7 +131,7 @@ pub struct TitleCaptionTranslation {
 
 #[derive(Debug, Serialize, Default)]
 pub struct IllustData {
-    pub id: u32,
+    pub id: u64,
     pub tags: Vec<String>,
     pub title: String,
     pub description: String,
@@ -144,7 +166,7 @@ impl<'i, 'de> Visitor<'de> for IllustDataVisitor<'i> {
             match key.as_str() {
                 "id" => {
                     let id = map.next_value::<String>()?;
-                    match id.parse::<u32>() {
+                    match id.parse() {
                         Ok(id) => {
                             self.data.id = id;
                         }
@@ -182,15 +204,16 @@ impl<'i, 'de> Visitor<'de> for IllustDataVisitor<'i> {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Illust {
     pub data: Vec<IllustData>,
-    pub total: i64,
+    pub total: u64,
     #[serde(rename = "lastPage")]
-    pub last_page: i64,
+    pub last_page: u64,
     #[serde(rename = "bookmarkRanges")]
     pub bookmark_ranges: Vec<Struct1>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct ArtworksBody {
+pub struct SearchPage {
+    #[serde(rename = "illust")]
     pub illust: Illust,
     pub popular: Popular,
     #[serde(rename = "relatedTags")]
@@ -203,11 +226,70 @@ pub struct ArtworksBody {
     pub extra_data: ExtraData,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct PixivResponse<T> {
-    pub error: bool,
-    #[serde(default)]
-    pub message: String,
-    pub body: T,
+
+pub struct PixivClient {
+    pub rng: RefCell<ThreadRng>,
+    pub root: PathBuf,
+    pub agents: Vec<String>,
+    pub cookie: String,
+    pub wait: Range<f32>,
 }
 
+impl PixivClient {
+    pub fn user_agent(&self) -> &str {
+        self.agents.choose(self.rng.borrow_mut().deref_mut()).unwrap()
+    }
+    pub fn cooldown(&self) -> Sleep {
+        let time = self.rng.borrow_mut().gen_range(self.wait.clone());
+        tokio::time::sleep(Duration::from_secs_f32(time))
+    }
+}
+
+pub struct PixivArtwork {
+    pub id: u64,
+}
+
+impl PixivArtwork {
+    pub async fn download_original(&self, client: &PixivClient) -> Result<usize, PixivError> {
+        if self.get_skip_mark(&client.root) {
+            println!("Skip downloading artwork {}", self.id);
+            return Ok(0);
+        }
+        let data = self.get_image_urls(&client.cookie, client.user_agent()).await?;
+        // WAIT!!! error 429 here!
+        client.cooldown().await;
+        for image in data.iter() {
+            image.download_original(&client.root).await?;
+        }
+        self.set_skip_mark(&client.root)?;
+        println!("Downloaded artwork {}", self.id);
+        Ok(data.len())
+    }
+
+    pub async fn get_image_urls(&self, cookie: &str, agent: &str) -> Result<Vec<PixivImage>, PixivError> {
+        let url = format!("https://www.pixiv.net/ajax/illust/{0}/pages?lang=zh", self.id);
+        let client = Client::new();
+        let response = client.get(url).header(USER_AGENT, agent).header(COOKIE, cookie).send().await?;
+        let json_data: PixivResponse<Vec<PixivImage>> = response.json().await?;
+        match json_data.error {
+            true => {
+                Err(PixivError::request_error(json_data.message, format!("PixivArtwork::get_image_urls({})", self.id)))
+            }
+            false => {
+                Ok(json_data.body)
+            }
+        }
+    }
+    pub fn get_skip_mark(&self, folder: &Path) -> bool {
+        let path = folder.join("skip").join(self.id.to_string());
+        path.exists()
+    }
+    pub fn set_skip_mark(&self, folder: &Path) -> Result<PathBuf, PixivError> {
+        let path = folder.join("skip");
+        if !path.exists() {
+            std::fs::create_dir_all(&path)?;
+        }
+        File::create(path.join(self.id.to_string()))?;
+        Ok(path)
+    }
+}
