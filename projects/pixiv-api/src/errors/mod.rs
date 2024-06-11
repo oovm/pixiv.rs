@@ -33,6 +33,15 @@ pub enum ExampleErrorKind {
 
 
 impl PixivError {
+    pub fn io_error(message: impl Into<String>, file: impl Into<PathBuf>) -> Self {
+        Self {
+            kind: Box::new(ExampleErrorKind::IoError {
+                message: message.into(),
+                file: file.into(),
+            }),
+        }
+    }
+
     pub fn request_error(message: impl Into<String>, context: impl Into<String>) -> Self {
         Self {
             kind: Box::new(ExampleErrorKind::RequestError {

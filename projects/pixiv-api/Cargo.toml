@@ -1,24 +1,22 @@
 [package]
 name = "pixiv-api"
-publish = false
 version = "0.0.0"
 authors = ["Aster <192607617@qq.com>"]
 description = "..."
 categories = ["rust-patterns"]
-homepage = "https://github.com/oovm/RustTemplate"
-repository = "https://github.com/oovm/RustTemplate"
-documentation = "https://docs.rs/sub_projects"
+homepage = "https://github.com/oovm/pixiv.rs"
+repository = "https://github.com/oovm/pixiv.rs"
+documentation = "https://docs.rs/pixiv-api"
 readme = "readme.md"
 license = "MPL-2.0"
 edition = "2021"
 exclude = ["package.json", "tests/**"]
 
 [dependencies]
-reqwest = { version = "0.12.4", features = ["json", "cookies"] }
+reqwest = { version = "0.12.4", features = ["cookies", "json", "socks"] }
 serde = { version = "1.0.203", features = ["derive"] }
 serde_json = "1.0.117"
-urlencode = "1.0.1"
-tokio = { version = "1.38.0", features = ["full"] }
+tokio = { version = "1.38.0", features = [] }
 rand = { version = "0.9.0-alpha.1", features = ["small_rng"] }
 futures = "0.3.30"
 

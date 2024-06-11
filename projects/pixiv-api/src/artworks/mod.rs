@@ -26,6 +26,7 @@ use std::{
 use tokio::{fs::File, io::AsyncWriteExt, time::Sleep};
 
 pub mod images;
+pub mod tags;
 
 #[derive(Debug, Deserialize)]
 pub struct PixivResponse<T> {
@@ -44,39 +45,6 @@ impl<T> PixivResponse<T> {
     }
 }
 
-impl Serialize for ArtworkTag {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut ser = serializer.serialize_struct("ArtworkTag", 8)?;
-        ser.serialize_field("word", &self.word)?;
-
-        match self.ratio {
-            _ => ser.serialize_field("ratio", &-0.5)?,
-        }
-
-        if let Some(s) = self.min_width {
-            ser.serialize_field("wlt", &s)?
-        }
-        if let Some(s) = self.max_width {
-            ser.serialize_field("wgt", &s)?
-        }
-        if let Some(s) = self.min_height {
-            ser.serialize_field("hlt", &s)?
-        }
-        if let Some(s) = self.max_height {
-            ser.serialize_field("hgt", &s)?
-        }
-
-        if !self.allow_ai {
-            ser.serialize_field("ai_type", &1)?
-        }
-        ser.serialize_field("csw", &1);
-
-        ser.end()
-    }
-}
 
 #[derive(Copy, Clone, Debug)]
 pub enum PixivImageRatio {
@@ -86,76 +54,6 @@ pub enum PixivImageRatio {
     All,
 }
 
-#[derive(Clone, Debug)]
-pub struct ArtworkTag {
-    pub word: String,
-    pub order: String,
-    pub mode: String,
-    pub csw: u32,
-    pub s_mode: String,
-    pub r#type: String,
-    pub page: u32,
-    pub ratio: PixivImageRatio,
-    pub allow_ai: bool,
-    pub min_width: Option<u32>,
-    pub max_width: Option<u32>,
-    pub min_height: Option<u32>,
-    pub max_height: Option<u32>,
-}
-
-impl ArtworkTag {
-    pub fn new(word: &str) -> Self {
-        Self {
-            word: word.to_string(),
-            order: "data".to_string(),
-            mode: "all".to_string(),
-            csw: 1,
-            s_mode: "s_tag".to_string(),
-            r#type: "illust".to_string(),
-            page: 1,
-            ratio: PixivImageRatio::All,
-            allow_ai: false,
-            min_width: None,
-            max_width: None,
-            min_height: None,
-            max_height: Some(9999),
-        }
-    }
-    pub fn landscape(word: &str) -> Self {
-        Self { ratio: PixivImageRatio::Landscape, min_width: Some(768), min_height: Some(512), ..Self::new(word) }
-    }
-
-    pub fn portrait(word: &str) -> Self {
-        Self { ratio: PixivImageRatio::Portrait, min_width: Some(512), min_height: Some(768), ..Self::new(word) }
-    }
-
-    pub fn square(word: &str) -> Self {
-        Self { min_width: Some(512), min_height: Some(512), ..Self::new(word) }
-    }
-
-    pub fn with_page(&self, page: u32) -> Self {
-        Self { page, ..self.clone() }
-    }
-}
-
-impl ArtworkTag {
-    pub async fn request(&self, config: &PixivClient) -> Result<SearchPage, PixivError> {
-        let client = reqwest::Client::new();
-        let response = client
-            .get(format!("https://www.pixiv.net/ajax/search/illustrations/{0}", self.word))
-            .query(&self)
-            .header(COOKIE, &config.cookie)
-            .header(USER_AGENT, config.user_agent())
-            .send()
-            .await?;
-        let json_data: PixivResponse<SearchPage> = response.json().await?;
-        json_data.throw("")
-    }
-
-    pub async fn count_pages(&self) -> Result<u32, PixivError> {
-        Ok(1)
-    }
-}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Meta {
@@ -218,8 +116,8 @@ pub struct IllustData {
 
 impl<'de> Deserialize<'de> for IllustData {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
+        where
+            D: Deserializer<'de>,
     {
         let mut data = IllustData::default();
         let visitor = IllustDataVisitor { data: &mut data };
@@ -239,8 +137,8 @@ impl<'i, 'de> Visitor<'de> for IllustDataVisitor<'i> {
         todo!()
     }
     fn visit_map<A>(mut self, mut map: A) -> Result<Self::Value, A::Error>
-    where
-        A: MapAccess<'de>,
+        where
+            A: MapAccess<'de>,
     {
         while let Some(key) = map.next_key::<String>()? {
             match key.as_str() {
@@ -266,18 +164,9 @@ impl<'i, 'de> Visitor<'de> for IllustDataVisitor<'i> {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Illust {
-    pub data: Vec<IllustData>,
-    pub total: u64,
-    #[serde(rename = "lastPage")]
-    pub last_page: u32,
-    #[serde(rename = "bookmarkRanges")]
-    pub bookmark_ranges: Vec<Struct1>,
-}
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct SearchPage {
+pub struct SearchTagPage {
     #[serde(rename = "illust")]
     pub illust: Illust,
     pub popular: Popular,
@@ -291,18 +180,56 @@ pub struct SearchPage {
     pub extra_data: ExtraData,
 }
 
-impl SearchPage {
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Illust {
+    pub data: Vec<IllustData>,
+    pub total: u64,
+    #[serde(rename = "lastPage")]
+    pub last_page: u32,
+    #[serde(rename = "bookmarkRanges")]
+    pub bookmark_ranges: Vec<Struct1>,
+}
+
+impl SearchTagPage {
     pub async fn count_pages(&self) -> Result<u32, PixivError> {
         Ok(self.illust.last_page)
     }
 }
 
 pub struct PixivClient {
-    pub rng: RefCell<ThreadRng>,
-    pub root: PathBuf,
-    pub agents: Vec<String>,
-    pub cookie: String,
-    pub wait: Range<f32>,
+    rng: RefCell<ThreadRng>,
+    root: PathBuf,
+    agents: &'static [&'static str],
+    cookie: String,
+    wait: Range<f32>,
+}
+
+const UA: &'static str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36";
+
+impl PixivClient {
+    pub fn new(root: impl AsRef<Path>) -> Self {
+        PixivClient {
+            rng: RefCell::new(Default::default()),
+            root: Path::new(env!("CARGO_MANIFEST_DIR")).join("target"),
+            agents: &[
+                UA
+            ],
+            cookie: String::new(),
+            wait: 1.0..2.0,
+        }
+    }
+    pub fn use_cookie(&mut self, cookie: impl Into<String>) {
+        self.cookie = cookie.into();
+    }
+    pub fn use_cookie_from_path(&mut self, path: impl AsRef<Path>) -> Result<(), PixivError> {
+        let path = path.as_ref();
+        if !path.exists() {
+            return Err(PixivError::io_error("COOKIE not found", path));
+        }
+        let content = std::fs::read_to_string(path)?;
+        self.cookie = content;
+        Ok(())
+    }
 }
 
 impl PixivClient {
