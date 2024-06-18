@@ -13,4 +13,4 @@ pub mod artworks;
 
 pub use crate::errors::{ExampleErrorKind, Result, PixivError};
 
-pub use crate::artworks::{images::{PixivImage, PixivImageUrls}, tags::SearchTag};
+pub use crate::artworks::{images::{PixivImage, PixivImageUrls}, tags::SearchIllustration};

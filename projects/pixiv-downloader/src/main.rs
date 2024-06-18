@@ -1,15 +1,18 @@
 use std::path::{Path};
 use pixiv_api::artworks::{SearchTagPage, PixivArtwork, PixivClient};
-use pixiv_api::{PixivError, SearchTag};
+use pixiv_api::{PixivError, SearchIllustration};
 
 
 #[tokio::main]
 async fn main() -> Result<(), PixivError> {
-    let config = PixivClient::new(Path::new(env!("CARGO_MANIFEST_DIR")).join("target"));
+    let here = Path::new(env!("CARGO_MANIFEST_DIR"));
 
-    let params = SearchTag::portrait("吟霖 100users入り");
+    let mut config = PixivClient::new(here.join("target"));
+    config.use_cookie_from_path(here.join("src/COOKIE.TXT"))?;
+
+    let params = SearchIllustration::portrait("吟霖 100users入り");
     let json: SearchTagPage = params.request(&config, true).await?;
-    for data in json.illust.data.clone() {
+    for data in json.illusion.data.clone() {
         let art = PixivArtwork { id: data.id };
         if art.id == 0 {
             // Ads pictures
@@ -22,9 +25,9 @@ async fn main() -> Result<(), PixivError> {
             }
         }
     }
-    for page in 2..=json.illust.last_page {
+    for page in 2..=json.illusion.last_page {
         let json = params.with_page(page).request(&config, true).await?;
-        for data in json.illust.data {
+        for data in json.illusion.data {
             let art = PixivArtwork { id: data.id };
             if art.id == 0 {
                 // Ads pictures

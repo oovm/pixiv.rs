@@ -27,6 +27,8 @@ use tokio::{fs::File, io::AsyncWriteExt, time::Sleep};
 
 pub mod images;
 pub mod tags;
+pub mod filters;
+pub mod sorters;
 
 #[derive(Debug, Deserialize)]
 pub struct PixivResponse<T> {
@@ -44,16 +46,6 @@ impl<T> PixivResponse<T> {
         }
     }
 }
-
-
-#[derive(Copy, Clone, Debug)]
-pub enum PixivImageRatio {
-    Landscape,
-    Portrait,
-    Square,
-    All,
-}
-
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Meta {
@@ -168,7 +160,7 @@ impl<'i, 'de> Visitor<'de> for IllustDataVisitor<'i> {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SearchTagPage {
     #[serde(rename = "illust")]
-    pub illust: Illust,
+    pub illusion: Illust,
     pub popular: Popular,
     #[serde(rename = "relatedTags")]
     pub related_tags: Vec<String>,
@@ -192,7 +184,7 @@ pub struct Illust {
 
 impl SearchTagPage {
     pub async fn count_pages(&self) -> Result<u32, PixivError> {
-        Ok(self.illust.last_page)
+        Ok(self.illusion.last_page)
     }
 }
 
@@ -210,7 +202,7 @@ impl PixivClient {
     pub fn new(root: impl AsRef<Path>) -> Self {
         PixivClient {
             rng: RefCell::new(Default::default()),
-            root: Path::new(env!("CARGO_MANIFEST_DIR")).join("target"),
+            root: root.as_ref().to_path_buf(),
             agents: &[
                 UA
             ],
